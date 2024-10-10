@@ -11,12 +11,25 @@ public class SokoBot {
      * sequence
      * that just moves left and right repeatedly.
      */
+    String path = "";
+    int p = -1, x = 0;
     try {
-      Thread.sleep(3000);
+      /*
+       * Find the player's location
+       * x = row
+       * p = col
+       */
+      do {
+        String temp = new String(itemsData[x]);
+        p = temp.indexOf('@');
+      } while (p == -1 || x != width);
+
+      
     } catch (Exception ex) {
       ex.printStackTrace();
     }
-    return "lrlrlrlrlrlrlrlrlrlrlrlrlrlrlrlrlrlrlrlrlrlrlrlrlrlrlrlrlrlrlrlrlrlrlrlrlrlr";
+
+    return path;
   }
 
 }
