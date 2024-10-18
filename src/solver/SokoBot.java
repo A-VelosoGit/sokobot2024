@@ -21,7 +21,7 @@ public class SokoBot {
       return boxes;
     }
 
-    // Heuristic: Sum of Manhattan distances
+    // Heuristic: Sum of Manhattan distances, will be improved
     public int distance(List<int[]> goals) {
       int totalDistance = 0;
       for (int[] box : boxes) {
@@ -34,23 +34,6 @@ public class SokoBot {
       }
       return totalDistance;
     }
-
-    /*
-    // Check if this state is a goal (all boxes on goals)
-    public boolean isGoal(List<int[]> goals) {
-      for (int[] box : boxes) {
-        boolean onGoal = false;
-        for (int[] goal : goals) {
-          if (box[0] == goal[0] && box[1] == goal[1]) {
-            onGoal = true;
-            break;
-          }
-        }
-        if (!onGoal) return false;
-      }
-      return true;
-    }
-   */
 
     // Check if two states are equal (player and box positions)
     @Override
@@ -107,7 +90,7 @@ public class SokoBot {
       return cost + heuristic;
     }
 
-    @Override
+    @Override //node value = total cost
     public int compareTo(Node other) {
       return Integer.compare(this.getTotalCost(), other.getTotalCost());
     }
@@ -118,6 +101,7 @@ public class SokoBot {
 
   public String solveSokobanPuzzle(int width, int height, char[][] mapData, char[][] itemsData) {
     long startTime = System.nanoTime();
+    int stateCount = 0; //debug thing
     int[] player = new int[2];
     List<int[]> boxes = new ArrayList<>();
     List<int[]> goals = new ArrayList<>();
@@ -141,6 +125,7 @@ public class SokoBot {
     State base = new State(player, boxes);
     frontier.add(new Node(null, base, 0, base.distance(goals), null));
 
+    // Main search loop
     while (!frontier.isEmpty()) {
       Node currentNode = frontier.poll();
       State currentState = currentNode.getState();
@@ -149,6 +134,7 @@ public class SokoBot {
         long endTime = System.nanoTime();
         long timeTaken = endTime - startTime;
         System.out.println("Time taken: " + (timeTaken/1_000_000) + "ms"); //debug thing
+        System.out.println("States visited: " + stateCount); //debug thing
         return printSolution(currentNode);
       }
 
@@ -156,16 +142,29 @@ public class SokoBot {
         continue;
       }
       visited.add(currentState);
+      stateCount++;
 
-      //if state has stuck box
+      /*if state has stuck box
       if (isDeadlock(currentState, mapData)) {
+        System.out.println("Deadlock detected");
+        System.out.println("States visited: " + stateCount);
         continue;
-      }
+      }*/
 
       for (char dir : DIRECTIONS) {
+
+        // scuffed pruning
+        if (currentNode.getParent() != null) {
+          if (dir == 'u' && currentNode.getMove() == 'd' ||
+              dir == 'd' && currentNode.getMove() == 'u' ||
+              dir == 'l' && currentNode.getMove() == 'r' ||
+              dir == 'r' && currentNode.getMove() == 'l')
+            continue;
+        }
+
         State newState = move(currentState, dir, mapData);
         if (newState != null && !visited.contains(newState)) {
-          int newCost = currentNode.getCost() + 1;  // Increment cost by 1, probably inefficient
+          int newCost = currentNode.getCost() + 1;  // Increment cost by 1, probably inefficient?
           int heuristic = newState.distance(goals);
           frontier.add(new Node(dir, newState, newCost, heuristic, currentNode));  // Add new state to queue
         }
@@ -175,16 +174,33 @@ public class SokoBot {
     return "No solution";
   }
 
-  private boolean isDeadlock(State state, char[][] walls) {
+  private boolean isDeadlock(State state, char[][] walls) { // will rework
     List<int[]> boxes = state.getBoxes();
     for (int[] box : boxes) {
-      // Check if the box is in a corner
-      if (walls[box[0]][box[1]] == '#' &&
-              walls[box[0] + 1][box[1]] == '#' || walls[box[0]][box[1] + 1] == '#') {
-        return true; // Box is stuck in a corner
+      if (isBoxStuckInCorner(box, walls)) {
+        return true;  // If any box is stuck in a corner, return true (deadlock)
       }
     }
     return false;
+  }
+
+  private static boolean isBoxStuckInCorner(int[] box, char[][] walls) {
+    int row = box[0];
+    int col = box[1];
+
+    // If corner is a goal point
+    if (walls[row][col] == '.')
+      return false; // Not stuck
+
+    // Check surrounding tiles
+    boolean upBlocked = (walls[row - 1][col] == '#');
+    boolean downBlocked = (walls[row + 1][col] == '#');
+    boolean leftBlocked = (walls[row][col - 1] == '#');
+    boolean rightBlocked = (walls[row][col + 1] == '#');
+
+    // Box is stuck in a corner if two adjacent sides are blocked, else false
+    return (upBlocked && leftBlocked) || (upBlocked && rightBlocked) ||
+            (downBlocked && leftBlocked) || (downBlocked && rightBlocked);
   }
 
   // Move the player in the given direction and push boxes if necessary
@@ -226,6 +242,12 @@ public class SokoBot {
           return null;
         }
 
+        int[] newBox = {newBoxRow, newBoxCol};
+
+        // Check if box gets stuck in corner
+        if (isBoxStuckInCorner(newBox, walls))
+          return null;
+
         // Create a new state with the pushed box
         List<int[]> newBoxes = new ArrayList<>(boxes);
         newBoxes.set(i, new int[]{newBoxRow, newBoxCol});
@@ -240,9 +262,8 @@ public class SokoBot {
   // Check if a box is at the given position
   private static boolean isBoxAt(List<int[]> boxes, int row, int col) {
     for (int[] box : boxes) {
-      if (box[0] == row && box[1] == col) {
+      if (box[0] == row && box[1] == col)
         return true;
-      }
     }
     return false;
   }
