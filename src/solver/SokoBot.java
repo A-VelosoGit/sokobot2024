@@ -131,7 +131,7 @@ public class SokoBot {
     );
 
     // Check if move is valid
-    if (!isValidMove(newPlayer, width, height)) return null;
+    if (isWallAt(newPlayer, width, height)) return null;
 
     // Check if a box got pushed
     Position boxPos = null;
@@ -143,10 +143,9 @@ public class SokoBot {
               newPlayer.y + dy[i]
       );
 
-      // Check if push is valid
-      if (!isValidMove(newBoxPos, width, height) || currentState.boxes.contains(newBoxPos)) {
+      // Check if push is valid, deadlock detection
+      if (isBoxStuck(newBoxPos, currentState.boxes, width, height))
         return null;
-      }
     }
 
     // Create new state, update box set if pushed
@@ -156,6 +155,7 @@ public class SokoBot {
       newBoxes.add(newBoxPos);
     }
 
+    // Cost prioritizes smallest amount of push count
     return new State(
             newPlayer,
             newBoxes,
@@ -166,10 +166,28 @@ public class SokoBot {
   }
 
   //Checks if new object position is empty (no wall)
-  private boolean isValidMove(Position pos, int width, int height) {
+  private boolean isWallAt(Position pos, int width, int height) {
     return pos.x >= 0 && pos.x < width &&
             pos.y >= 0 && pos.y < height &&
-            map[pos.y][pos.x] != '#';
+            map[pos.y][pos.x] == '#';
+  }
+
+  private boolean isBoxStuck(Position box, Set<Position> boxes, int width, int height) {
+
+    if (isWallAt(box, width, height) || boxes.contains(box)) return true;
+
+    if (goals.contains(box)) return false;
+
+    Position left = new Position(box.x - 1, box.y);
+    Position right = new Position(box.x + 1, box.y);
+    Position up = new Position(box.x, box.y - 1);
+    Position down = new Position(box.x, box.y + 1);
+
+    // Check for corner deadlocks
+    return (isWallAt(left, width, height) && isWallAt(up, width, height)) ||
+            (isWallAt(right, width, height) && isWallAt(up, width, height)) ||
+            (isWallAt(left, width, height) && isWallAt(down, width, height)) ||
+            (isWallAt(right, width, height) && isWallAt(down, width, height));
   }
 
   // Heuristic function, Manhattan distance to a box's closest goal
