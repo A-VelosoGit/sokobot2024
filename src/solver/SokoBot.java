@@ -1,288 +1,207 @@
 package solver;
 import java.util.*;
 
-
 public class SokoBot {
-
-  /**
-   * @param player Player's position [row, col]
-   * @param boxes  List of box positions [row, col]
-   */
-  record State(int[] player, List<int[]> boxes) {
-
-    // Heuristic: Sum of Manhattan distances, will be improved
-      public int distance(List<int[]> goals) {
-        int totalDistance = 0;
-        for (int[] box : boxes) {
-          int minDist = Integer.MAX_VALUE;
-          for (int[] goal : goals) {
-            int dist = Math.abs(goal[0] - box[0]) + Math.abs(goal[1] - box[1]);
-            minDist = Math.min(minDist, dist);
-          }
-          totalDistance += minDist;
-        }
-        return totalDistance;
-      }
-
-      // Check if two states are equal (player and box positions)
-      @Override
-      public boolean equals(Object obj) {
-        if (this == obj) return true;
-        if (obj == null || getClass() != obj.getClass()) return false;
-        State state = (State) obj;
-        return Arrays.equals(player, state.player) && boxes.equals(state.boxes);
-      }
-
-      @Override
-      public int hashCode() {
-        return Objects.hash(Arrays.hashCode(player), boxes);
-      }
+  // Position class to track coordinates
+  private static class Position {
+    int x, y;
+    Position(int x, int y) {
+      this.x = x;
+      this.y = y;
     }
 
-  /**
-   * @param state     The current state (player position and box positions)
-   * @param cost      Cost to reach this node (g(n))
-   * @param parent    Parent node (to reconstruct the path)
-   * @param heuristic Heuristic value (h(n))
-   */
-  record Node(Character move, State state, int cost, int heuristic, SokoBot.Node parent) implements Comparable<Node> {
-
-    // f(n) = g(n) + h(n)
-      public int getTotalCost() {
-        return cost + heuristic;
-      }
-
-      @Override //node value = total cost
-      public int compareTo(Node other) {
-        return Integer.compare(this.getTotalCost(), other.getTotalCost());
-      }
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+      Position position = (Position) o;
+      return x == position.x && y == position.y;
     }
 
-  // Directions
-  private static final char[] DIRECTIONS = {'u', 'd', 'l', 'r'};
+    @Override
+    public int hashCode() {
+      return Objects.hash(x, y);
+    }
+  }
+
+  // State class to represent game state
+  private static class State {
+    Position player;
+    Set<Position> boxes;
+    int cost;
+    String moves;
+    State parent;
+
+    State(Position player, Set<Position> boxes, int cost, String moves, State parent) {
+      this.player = player;
+      this.boxes = new HashSet<>(boxes);
+      this.cost = cost;
+      this.moves = moves;
+      this.parent = parent;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+      State state = (State) o;
+      return player.equals(state.player) && boxes.equals(state.boxes);
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(player, boxes);
+    }
+  }
+
+  private char[][] map;
+  private Set<Position> goals;
+  private static final int[] dx = {-1, 1, 0, 0}; // left, right, up, down
+  private static final int[] dy = {0, 0, -1, 1};
+  private static final char[] moves = {'l', 'r', 'u', 'd'};
 
   public String solveSokobanPuzzle(int width, int height, char[][] mapData, char[][] itemsData) {
-    int stateCount = 0; //debug thing
-    int[] player = new int[2];
-    List<int[]> boxes = new ArrayList<>();
-    List<int[]> goals = new ArrayList<>();
-    PriorityQueue<Node> frontier = new PriorityQueue<>();  // Priority queue
-    Set<State> explored = new HashSet<>();  // Check visited nodes
-    int newCost; // cost variable for new nodes
+    // Initialize map and goal points
+    this.map = mapData;
+    this.goals = new HashSet<>();
 
     // Read data
-    for (int i = 0; i < height; i++) {
-      for (int j = 0; j < width; j++) {
-        if (mapData[i][j] == '.')
-          goals.add(new int[]{i, j});
+    Position playerPos = null;
+    Set<Position> boxes = new HashSet<>();
 
-        if (itemsData[i][j] == '$')
-          boxes.add(new int[]{i, j});
-
-        if (itemsData[i][j] == '@')
-          player = new int[]{i, j};
+    for (int y = 0; y < height; y++) {
+      for (int x = 0; x < width; x++) {
+        if (mapData[y][x] == '.') {
+          goals.add(new Position(x, y));
+        }
+        if (itemsData[y][x] == '@') {
+          playerPos = new Position(x, y);
+        } else if (itemsData[y][x] == '$') {
+          boxes.add(new Position(x, y));
+        }
       }
     }
 
-    State base = new State(player, boxes);
-    frontier.add(new Node(null, base, 0, base.distance(goals), null));
+    // Solve using A*
+    return aStar(playerPos, boxes, width, height);
+  }
 
-    // Main search loop
+  private String aStar(Position start, Set<Position> boxes, int width, int height) {
+    PriorityQueue<State> frontier = new PriorityQueue<>((a, b) ->
+            (a.cost + heuristic(a.boxes)) - (b.cost + heuristic(b.boxes)));
+    Set<String> explored = new HashSet<>();
+    //int stateCount = 0; // debug thing
+
+    State initial = new State(start, boxes, 0, "", null);
+    frontier.add(initial);
+    explored.add(stringState(initial));
+
     while (!frontier.isEmpty()) {
-      Node currentNode = frontier.poll();
-      State currentState = currentNode.state();
+      State currentState = frontier.poll();
 
-      if (currentNode.heuristic() == 0) {
-        System.out.println("States visited: " + stateCount); //debug thing
-        return printSolution(currentNode);
+      // Check if we reached the goal
+      if (heuristic(currentState.boxes) == 0) {
+        //System.out.println("States visited: " + stateCount); // debug thing
+        return currentState.moves;
       }
 
-      if (explored.contains(currentState)) {
-        continue;
-      }
-      explored.add(currentState);
-      stateCount++;
+      // Try each direction
+      for (int i = 0; i < 4; i++) {
+        State newState = move(currentState, i, width, height);
 
-      for (char dir : DIRECTIONS) {
-
-        if (isReverseMove(currentNode, dir))
-              continue;
-
-        State newState = move(currentState, dir, mapData);
-        if (newState != null && !explored.contains(newState)) {
-          if(newState.boxes().equals(currentState.boxes())) // If no box moved
-            newCost = currentNode.cost() + 1;  // Increment cost by 1
-          else {
-            newCost = currentNode.cost(); // Cost remain the same
+        if (newState != null) {
+          String stateStr = stringState(newState);
+          if (!explored.contains(stateStr)) {
+            //stateCount++; // debug thing
+            explored.add(stateStr);
+            frontier.add(newState);
           }
-          int heuristic = newState.distance(goals);
-          frontier.add(new Node(dir, newState, newCost, heuristic, currentNode));  // Add new state to queue
         }
       }
     }
 
-    return ""; // No solution
+    return ""; // No solution found
   }
 
-  // Pruning redundant paths, does not allow reverse moves if no boxes were changed from first move
-  private static boolean isReverseMove(Node node, char dir) {
-    if (node.parent() == null || node.move() == null) return false;
+  // Branch out state, returns null if invalid
+  private State move(State currentState, int i, int width, int height) {
+    Position newPlayer = new Position(
+            currentState.player.x + dx[i],
+            currentState.player.y + dy[i]
+    );
 
-    boolean isReverse = (dir == 'u' && node.move() == 'd') ||
-                        (dir == 'd' && node.move() == 'u') ||
-                        (dir == 'l' && node.move() == 'r') ||
-                        (dir == 'r' && node.move() == 'l');
+    // Check if move is valid
+    if (!isValidMove(newPlayer, width, height)) return null;
 
-    return isReverse && node.state().boxes().equals(node.parent().state().boxes());
-  }
+    // Check if a box got pushed
+    Position boxPos = null;
+    Position newBoxPos = null;
+    if (currentState.boxes.contains(newPlayer)) {
+      boxPos = newPlayer;
+      newBoxPos = new Position(
+              newPlayer.x + dx[i],
+              newPlayer.y + dy[i]
+      );
 
-  private static boolean isBoxStuck(int[] box, char[][] map, List<int[]> boxes) {
-    int boxRow = box[0];
-    int boxCol = box[1];
-
-    // If box is on a goal point
-    if (map[boxRow][boxCol] == '.')
-      return false; // Not stuck
-
-    int[][] rotatePattern = {
-            {0, 1, 2, 3, 4, 5, 6, 7, 8},
-            {2, 5, 8, 1, 4, 7, 0, 3, 6},
-            {8, 7, 6, 5, 4, 3, 2, 1, 0},
-            {6, 3, 0, 7, 4, 1, 8, 5, 2}
-    };
-    int[][] flipPattern = {
-            {2, 1, 0, 5, 4, 3, 8, 7, 6},
-            {0, 3, 6, 1, 4, 7, 2, 5, 8},
-            {6, 7, 8, 3, 4, 5, 0, 1, 2},
-            {8, 5, 2, 7, 4, 1, 6, 3, 0}
-    };
-    List<int[]> allPatterns = new ArrayList<>();
-    allPatterns.addAll(Arrays.asList(rotatePattern));
-    allPatterns.addAll(Arrays.asList(flipPattern));
-
-    int[][] board = {
-            {box[0] - 1, box[1] - 1}, {box[0] - 1, box[1]}, {box[0] - 1, box[1] + 1},
-            {box[0], box[1] - 1},     {box[0], box[1]},     {box[0], box[1] + 1},
-            {box[0] + 1, box[1] - 1}, {box[0] + 1, box[1]}, {box[0] + 1, box[1] + 1}
-    };
-
-    for (int[] pattern : allPatterns) {
-      List<int[]> newBoard = new ArrayList<>();
-
-      for (int index : pattern) {
-        newBoard.add(Arrays.copyOf(board[index], board[index].length));
-      }
-
-      if (isWallAt(newBoard.get(1), map) && isWallAt(newBoard.get(5), map)) {
-        return true;
-      } else if (isBoxAt(newBoard.get(1), boxes) && isWallAt(newBoard.get(2), map) && isWallAt(newBoard.get(5), map)) {
-        return true;
-      } else if (isBoxAt(newBoard.get(1), boxes) && isWallAt(newBoard.get(2), map) && isBoxAt(newBoard.get(5), boxes)) {
-        return true;
-      } else if (isBoxAt(newBoard.get(1), boxes) && isBoxAt(newBoard.get(2), boxes) && isBoxAt(newBoard.get(5), boxes)) {
-        return true;
-      }
-      else if (isBoxAt(newBoard.get(1), boxes) && isBoxAt(newBoard.get(6), boxes) && isWallAt(newBoard.get(2), map)
-              && isWallAt(newBoard.get(3), map) && isWallAt(newBoard.get(8), map)) {
-        return true;
+      // Check if push is valid
+      if (!isValidMove(newBoxPos, width, height) || currentState.boxes.contains(newBoxPos)) {
+        return null;
       }
     }
 
-    return false;
-  }
-
-  // Check if a wall is at the given position
-  private static boolean isWallAt(int[] pos, char[][] map) {
-    int row = pos[0];
-    int col = pos[1];
-
-    // Make sure to check bounds before accessing the map
-    if (row >= 0 && row < map.length && col >= 0 && col < map[0].length) {
-      return map[row][col] == '#';
+    // Create new state, update box set if pushed
+    Set<Position> newBoxes = new HashSet<>(currentState.boxes);
+    if (boxPos != null) {
+      newBoxes.remove(boxPos);
+      newBoxes.add(newBoxPos);
     }
 
-    return false;
+    return new State(
+            newPlayer,
+            newBoxes,
+            boxPos != null ? currentState.cost + 1 : currentState.cost,
+            currentState.moves + moves[i],
+            currentState
+    );
   }
 
-  // Check if a box is at the given position
-  private static boolean isBoxAt(int[] pos, List<int[]> boxes) {
-    int row = pos[0];
-    int col = pos[1];
-
-    for (int[] box : boxes) {
-      if (box[0] == row && box[1] == col)
-        return true;
-    }
-    return false;
+  //Checks if new object position is empty (no wall)
+  private boolean isValidMove(Position pos, int width, int height) {
+    return pos.x >= 0 && pos.x < width &&
+            pos.y >= 0 && pos.y < height &&
+            map[pos.y][pos.x] != '#';
   }
 
-  // Move the player in the given direction and push boxes if necessary
-  private static State move(State state, char dir, char[][] walls) {
-    int[] player = state.player();
-    List<int[]> boxes = state.boxes();
-    int[] dirCoord = switch (dir) {
-      case 'u' -> new int[]{-1, 0};
-      case 'd' -> new int[]{1, 0};
-      case 'l' -> new int[]{0, -1};
-      case 'r' -> new int[]{0, 1};
-      default -> new int[2];
-    };
-
-    // Move player
-    int[] newPlayer = {player[0] + dirCoord[0], player[1] + dirCoord[1]};
-
-    // Check if new position is valid (not a wall)
-    if (isWallAt(newPlayer, walls)) {
-      return null;
-    }
-
-    // Check if there is a box at the new player position
-    for (int i = 0; i < boxes.size(); i++) {
-      int[] box = boxes.get(i);
-      if (box[0] == newPlayer[0] && box[1] == newPlayer[1]) {
-        // Try to push the box
-        int[] newBox = {box[0] + dirCoord[0], box[1] + dirCoord[1]};
-
-        // Check if the box can be pushed (not a wall or another box)
-        if (isWallAt(newBox, walls) || isBoxAt(newBox, boxes)) {
-          return null;
+  // Heuristic function, Manhattan distance to a box's closest goal
+  // Skips boxes on goals
+  private int heuristic(Set<Position> boxes) {
+    int total = 0;
+    for (Position box : boxes) {
+      if (!goals.contains(box)) {
+        int minDist = Integer.MAX_VALUE;
+        for (Position goal : goals) {
+          int dist = Math.abs(box.x - goal.x) + Math.abs(box.y - goal.y);
+          minDist = Math.min(minDist, dist);
         }
-
-        // Check if box gets stuck in corner
-        //if (isBoxStuckInCorner(newBox, walls))
-        //  return null;
-
-        // Create a new state with the pushed box
-        List<int[]> newBoxes = new ArrayList<>(boxes);
-        newBoxes.set(i, newBox);
-
-        //Check if box hits deadlock
-        if (isBoxStuck(newBox, walls, newBoxes))
-          return null;
-
-        return new State(newPlayer, newBoxes);
+        total += minDist;
       }
     }
-
-    // No box at the new position, return a new state with just the player moved
-    return new State(newPlayer, boxes);
+    return total;
   }
 
-  // Print the solution by tracing back the nodes
-  private static String printSolution(Node node) {
-    List<Character> moves = new ArrayList<>();
-    while (node.parent() != null) {
-      moves.add(node.move());
-      node = node.parent();
+  // Convert player and box values to String
+  // Made to access explored set faster
+  private String stringState(State state) {
+    StringBuilder sb = new StringBuilder();
+    sb.append(state.player.x).append(',').append(state.player.y).append(';');
+    List<Position> sortedBoxes = new ArrayList<>(state.boxes);
+    sortedBoxes.sort((a, b) -> {
+      if (a.y != b.y) return a.y - b.y;
+      return a.x - b.x;
+    });
+    for (Position box : sortedBoxes) {
+      sb.append(box.x).append(',').append(box.y).append(';');
     }
-    Collections.reverse(moves);
-
-    StringBuilder sequence = new StringBuilder();
-    for (Character move : moves) {
-      sequence.append(move);
-    }
-    System.out.println(sequence);
-    return sequence.toString();
+    return sb.toString();
   }
-
 }
