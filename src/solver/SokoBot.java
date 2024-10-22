@@ -88,7 +88,7 @@ public class SokoBot {
 
   private String aStar(Position start, Set<Position> boxes, int width, int height) {
     PriorityQueue<State> frontier = new PriorityQueue<>((a, b) ->
-            (a.cost + heuristic(a.boxes)) - (b.cost + heuristic(b.boxes)));
+            (a.cost + heuristic(a.boxes)) - (b.cost + heuristic(b.boxes))); // Compares g(n) + h(n)
     Set<String> explored = new HashSet<>();
     //int stateCount = 0; // debug thing
 
@@ -165,13 +165,14 @@ public class SokoBot {
     );
   }
 
-  //Checks if new object position is empty (no wall)
+  //Checks if new object position is a wall
   private boolean isWallAt(Position pos, int width, int height) {
     return pos.x >= 0 && pos.x < width &&
             pos.y >= 0 && pos.y < height &&
             map[pos.y][pos.x] == '#';
   }
 
+  // Deadlock detection, corner checking
   private boolean isBoxStuck(Position box, Set<Position> boxes, int width, int height) {
 
     if (isWallAt(box, width, height) || boxes.contains(box)) return true;
